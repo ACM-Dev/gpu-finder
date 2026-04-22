@@ -470,7 +470,10 @@ def export_markdown(results: list[CapacityResult], gpu_specs: dict[str, GpuSpec]
     for r in results:
         spec = gpu_specs.get(r.instance_type)
         gpu_str = spec.summary if spec else "N/A"
-        lines.append(f"| `{r.instance_type}` | {gpu_str} | {r.region} | {r.az.split('-')[-1]} | {r.odcr_status} |")
+        status = r.odcr_status
+        if r.odcr_detail and "Error" in status:
+            status = f"{status} — {r.odcr_detail}"
+        lines.append(f"| `{r.instance_type}` | {gpu_str} | {r.region} | {r.az.split('-')[-1]} | {status} |")
 
     lines += ["", "---", "", "## Capacity Block Offerings", ""]
     cb_results = [r for r in results if r.cb_offerings]
@@ -549,13 +552,16 @@ def export_html(results: list[CapacityResult], gpu_specs: dict[str, GpuSpec], ac
         cb1 = next((cb for cb in r.cb_offerings if cb.duration_hours == 168), None)
         cb_str = f"{cb1.start_date} / ${int(cb1.upfront_fee):,}/1w" if cb1 else (r.cb_error or "—")
         color = status_color(r.odcr_status)
+        status_text = r.odcr_status
+        if r.odcr_detail and "Error" in r.odcr_status:
+            status_text = f"{r.odcr_status}<br><small>{r.odcr_detail}</small>"
         rows += (
             f"<tr>"
             f"<td><code>{r.instance_type}</code></td>"
             f"<td>{gpu_str}</td>"
             f"<td>{r.region}</td>"
             f"<td>{r.az.split('-')[-1]}</td>"
-            f"<td style='color:{color};font-weight:600'>{r.odcr_status}</td>"
+            f"<td style='color:{color};font-weight:600'>{status_text}</td>"
             f"<td>{cb_str}</td>"
             f"</tr>\n"
         )
@@ -806,10 +812,13 @@ def run_tui(results: list[CapacityResult], gpu_specs: dict[str, GpuSpec], accoun
                 cb_start = cb1_offer.start_date if cb1_offer else "—"
                 cb1 = f"${int(cb1_offer.upfront_fee):,}" if cb1_offer else "—"
                 cb4 = f"${int(cb4_offer.upfront_fee):,}" if cb4_offer else "—"
+                status_display = r.odcr_status
+                if r.odcr_detail and "Error" in r.odcr_status:
+                    status_display = f"{r.odcr_status} — {r.odcr_detail}"
                 table.add_row(
                     r.instance_type, gpu_str, r.region,
                     r.az.split("-")[-1],
-                    odcr_text(r.odcr_status),
+                    odcr_text(status_display),
                     cb_start, cb1, cb4,
                 )
 
@@ -882,12 +891,18 @@ def print_plain_report(results: list[CapacityResult], gpu_specs: dict[str, GpuSp
             cb1 = f"${int(cb1_offer.upfront_fee):,}" if cb1_offer else "—"
             cb4 = f"${int(cb4_offer.upfront_fee):,}" if cb4_offer else "—"
             status_style = "green" if "Confirmed" in r.odcr_status else ("red" if "Insufficient" in r.odcr_status else "yellow")
+            status_text = r.odcr_status
+            if r.odcr_detail and "Error" in r.odcr_status:
+                status_text = f"{r.odcr_status}\n{r.odcr_detail}"
             table.add_row(r.instance_type, gpu_str, r.region, r.az.split("-")[-1],
-                          f"[{status_style}]{r.odcr_status}[/{status_style}]", cb_start, cb1, cb4)
+                          f"[{status_style}]{status_text}[/{status_style}]", cb_start, cb1, cb4)
         console.print(table)
     except ImportError:
         for r in results:
-            print(f"{r.instance_type:20} {r.region:20} {r.az:25} ODCR: {r.odcr_status}")
+            status = r.odcr_status
+            if r.odcr_detail and "Error" in r.odcr_status:
+                status = f"{r.odcr_status} ({r.odcr_detail})"
+            print(f"{r.instance_type:20} {r.region:20} {r.az:25} ODCR: {status}")
 
 
 # ---------------------------------------------------------------------------
