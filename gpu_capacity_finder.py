@@ -162,20 +162,25 @@ def check_auth() -> dict:
 # Region access check
 # ---------------------------------------------------------------------------
 
-def check_region_access(region: str) -> bool:
+def check_region_access(region: str) -> tuple[bool, str]:
+    """Returns (accessible, reason). reason is empty string when accessible."""
     try:
         boto3.client("ec2", region_name=region).describe_availability_zones(
             Filters=[{"Name": "state", "Values": ["available"]}]
         )
-        return True
+        return True, ""
     except ClientError as e:
         code = e.response["Error"]["Code"]
         if code in ("AuthFailure", "UnauthorizedOperation", "AccessDeniedException",
-                    "OptInRequired", "InvalidClientTokenId"):
-            return False
-        return False
-    except Exception:
-        return False
+                    "InvalidClientTokenId"):
+            return False, "SCP Blocked"
+        if code == "OptInRequired":
+            return False, "Not enabled"
+        if code in ("RequestLimitExceeded", "Throttling"):
+            return False, f"Rate limited ({code})"
+        return False, f"Error: {code}"
+    except Exception as e:
+        return False, f"Error: {e}"
 
 
 # ---------------------------------------------------------------------------
@@ -621,14 +626,14 @@ def save_outputs(results: list[CapacityResult], gpu_specs: dict[str, GpuSpec],
 # Interactive CLI selection helpers (plain terminal, used before TUI)
 # ---------------------------------------------------------------------------
 
-def select_regions(accessible: list[tuple[str, str, bool]]) -> list[str]:
+def select_regions(accessible: list[tuple[str, str, bool, str]]) -> list[str]:
     print("\nAvailable regions:")
-    for i, (code, name, ok) in enumerate(accessible, 1):
-        status = "✓ Accessible" if ok else "✗ SCP Blocked"
+    for i, (code, name, ok, reason) in enumerate(accessible, 1):
+        status = "✓ Accessible" if ok else f"✗ {reason}"
         print(f"  {i:2}. {code:<22} {name:<20} [{status}]")
     print("\nEnter region numbers (comma-separated) or press Enter for all accessible:")
     raw = input("> ").strip()
-    accessible_codes = [code for code, _, ok in accessible if ok]
+    accessible_codes = [code for code, _, ok, _ in accessible if ok]
     if not raw:
         return accessible_codes
     selected = []
@@ -637,11 +642,11 @@ def select_regions(accessible: list[tuple[str, str, bool]]) -> list[str]:
         if part.isdigit():
             idx = int(part) - 1
             if 0 <= idx < len(accessible):
-                code, _, ok = accessible[idx]
+                code, _, ok, _ = accessible[idx]
                 if ok:
                     selected.append(code)
                 else:
-                    print(f"  Skipping {code} — SCP blocked")
+                    print(f"  Skipping {code} — {reason}")
     return selected or accessible_codes
 
 
@@ -939,17 +944,17 @@ def main():
         return
 
     print("\nChecking region access...")
-    region_status: list[tuple[str, str, bool]] = []
+    region_status: list[tuple[str, str, bool, str]] = []
     with ThreadPoolExecutor(max_workers=5) as ex:
         futures = {ex.submit(check_region_access, code): (code, name) for code, name in CANDIDATE_REGIONS}
         for fut in as_completed(futures):
             code, name = futures[fut]
-            ok = fut.result()
-            region_status.append((code, name, ok))
+            ok, reason = fut.result()
+            region_status.append((code, name, ok, reason))
     region_status.sort(key=lambda x: CANDIDATE_REGIONS.index((x[0], x[1])) if (x[0], x[1]) in CANDIDATE_REGIONS else 99)
 
     if args.all:
-        selected_regions = [code for code, _, ok in region_status if ok]
+        selected_regions = [code for code, _, ok, _ in region_status if ok]
         selected_instances = P_SERIES + G_SERIES
     else:
         selected_regions = select_regions(region_status)
