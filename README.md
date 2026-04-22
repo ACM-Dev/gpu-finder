@@ -1,255 +1,157 @@
-# AWS GPU Instance Capacity Finder
+# AWS GPU Instance Capacity Finder (Go Version)
 
-Interactive tool for checking EC2 GPU instance availability across AWS regions. Performs real ODCR reserve-and-cancel tests to confirm actual capacity, and queries Capacity Block pricing — then displays results in a Textual TUI with export to Markdown, JSON, and HTML.
+A high-performance, interactive TUI tool written in Go for checking EC2 GPU instance availability across AWS regions. This tool performs **real** On-Demand Capacity Reservation (ODCR) tests and **Capacity Block** availability checks to confirm actual capacity beyond simple dry-runs.
+
+Made by [acuitmeshdev](https://acuitmesh.com).
+
+## Key Features
+
+- **High-Performance Scanning**: Leverages Go goroutines for massive parallel capacity checks.
+- **Real ODCR Verification**: Performs actual capacity reservations (and immediate cancellations) to verify real-world availability.
+- **Capacity Block (CB) Pricing**: Checks CB offerings across multiple durations (1w, 2w, 4w, 8w, 20w) with retry logic.
+- **On-Demand Pricing**: Fetches hourly pricing for confirmed instances only.
+- **Polished TUI**: Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [Lip Gloss](https://github.com/charmbracelet/lipgloss) for a modern, responsive terminal experience.
+- **Dynamic Instance Discovery**: Automatically finds the latest GPU and Accelerator instance types (`p5`, `g6`, `trn1`, etc.) from the AWS API.
+- **Export Reports**: Save results to Markdown, JSON, or styled HTML.
+- **Region Awareness**: Detects accessible regions vs. those blocked by SCPs or opt-in requirements.
 
 ---
 
-## What it checks
+## Installation
 
-For each selected region and instance type, the tool:
+### Prerequisites
 
-1. **Region access** — detects which regions are accessible vs. blocked by SCP
-2. **Instance availability** — which AZs offer the instance type
-3. **ODCR (On-Demand Capacity Reservation)** — performs a real reservation then immediately cancels it to confirm actual capacity (not just a dry-run)
-4. **Capacity Block offerings** — queries available fixed-window reservations with pricing at 1w / 2w / 4w / 8w durations
+- **AWS Credentials**: Configured via `aws configure`, environment variables, or IAM roles.
+- **Permissions**: Requires `ec2:Describe*`, `ec2:CreateCapacityReservation`, `ec2:CancelCapacityReservation`, `ec2:DescribeCapacityBlockOfferings`, `pricing:GetProducts`, and `sts:GetCallerIdentity`.
 
-### Instance families covered
+### Option 1: Download Pre-built Binary
 
-| Family | Examples | Accelerator |
-|---|---|---|
-| P-series | p3, p3dn, p4d, p4de, p5, p5en, p5e | NVIDIA V100 / A100 / H100 / H200 |
-| G-series | g5, g6, g6e | NVIDIA A10G / L4 / L40S |
-| AWS Silicon | trn1, inf2 | Trainium / Inferentia2 |
+Download the latest release from [Releases](https://github.com/ACM-Dev/gpu-finder/releases):
 
-GPU specs (count, VRAM, vCPUs) are fetched live from the AWS API — not hardcoded.
+```bash
+# Linux (amd64)
+curl -LO https://github.com/ACM-Dev/gpu-finder/releases/latest/download/gpu-finder-vX.Y.Z-linux-amd64.tar.gz
+tar xzf gpu-finder-vX.Y.Z-linux-amd64.tar.gz
+chmod +x gpu-finder
+./gpu-finder
 
-### Regions checked
+# macOS (arm64 / Apple Silicon)
+curl -LO https://github.com/ACM-Dev/gpu-finder/releases/latest/download/gpu-finder-vX.Y.Z-darwin-arm64.tar.gz
+tar xzf gpu-finder-vX.Y.Z-darwin-arm64.tar.gz
+chmod +x gpu-finder
+./gpu-finder
 
-| Region | Location |
+# macOS (amd64 / Intel)
+curl -LO https://github.com/ACM-Dev/gpu-finder/releases/latest/download/gpu-finder-vX.Y.Z-darwin-amd64.tar.gz
+tar xzf gpu-finder-vX.Y.Z-darwin-amd64.tar.gz
+chmod +x gpu-finder
+./gpu-finder
+
+# Windows (amd64)
+# Download gpu-finder-vX.Y.Z-windows-amd64.zip from Releases, extract, then run:
+.\gpu-finder.exe
+```
+
+### Option 2: Build from Source
+
+```bash
+# Clone the repository
+git clone https://github.com/ACM-Dev/gpu-finder.git
+cd gpu-finder
+
+# Build the binary
+go build -o gpu-finder .
+
+# Run it
+./gpu-finder
+```
+
+---
+
+## Usage
+
+### Interactive TUI (Default)
+
+```bash
+./gpu-finder
+```
+
+### CLI Flags
+
+| Flag | Description |
 |---|---|
-| ap-southeast-1 | Singapore |
-| ap-southeast-3 | Jakarta |
-| ap-southeast-7 | Bangkok |
-| ap-northeast-1 | Tokyo |
-| ap-northeast-2 | Seoul |
-| ap-south-1 | Mumbai |
-| ap-southeast-2 | Sydney |
-| us-east-1 | N. Virginia |
-| us-east-2 | Ohio |
-| us-west-2 | Oregon |
-
----
-
-## Requirements
-
-- Python 3.11+
-- AWS credentials configured (`aws configure`, `AWS_PROFILE`, or env vars)
-- IAM permissions: `ec2:Describe*`, `ec2:CreateCapacityReservation`, `ec2:CancelCapacityReservation`, `sts:GetCallerIdentity`, `organizations:DescribeOrganization` (optional)
-
----
-
-## Running locally
-
-### Quick start with setup scripts (recommended)
-
-Setup scripts auto-detect Python and uv, show install instructions if missing, then launch the tool.
-
-#### Linux / macOS
+| `--auth` | Check AWS auth, display account details, and exit |
+| `--headless` | Skip TUI, run scan interactively, print results |
+| `--all` | Scan all accessible regions with P/G series, save all formats |
 
 ```bash
-chmod +x scripts/setup-and-run.sh
-./scripts/setup-and-run.sh
-```
+# Check authentication
+./gpu-finder --auth
 
-#### Windows (PowerShell)
+# Headless mode (prompts for save formats after scan)
+./gpu-finder --headless
 
-```powershell
-.\scripts\setup-and-run.ps1
-```
-
-> If blocked by execution policy, run: `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`
-
-### Manual — with uv (no install needed)
-
-#### Linux / macOS
-
-```bash
-# Full interactive TUI
-uv run --with "boto3[crt]" --with textual --with rich python3 gpu_capacity_finder.py
-
-# Check auth and exit
-uv run --with "boto3[crt]" --with textual --with rich python3 gpu_capacity_finder.py --check-auth
-
-# Non-interactive — scan all accessible regions, save all output formats
-uv run --with "boto3[crt]" --with textual --with rich python3 gpu_capacity_finder.py --no-tui --all
-```
-
-#### Windows (PowerShell)
-
-```powershell
-uv run --with 'boto3[crt]' --with textual --with rich python gpu_capacity_finder.py
-uv run --with 'boto3[crt]' --with textual --with rich python gpu_capacity_finder.py --check-auth
-uv run --with 'boto3[crt]' --with textual --with rich python gpu_capacity_finder.py --no-tui --all
-```
-
-> **Note:** Use `python` instead of `python3` on Windows. Single quotes around `boto3[crt]` are required in PowerShell.
-
-#### Windows (cmd.exe)
-
-```cmd
-uv run --with "boto3[crt]" --with textual --with rich python gpu_capacity_finder.py
-```
-
-### With pip
-
-```bash
-pip install "boto3[crt]" textual rich
-python3 gpu_capacity_finder.py
+# Full auto-scan with all formats saved
+./gpu-finder --all
 ```
 
 ---
 
-## Running with Docker
+## Usage Walkthrough
 
-### Pull from registry
+### 1. Welcome & Policy
+Review the **Terms of Use**. This tool performs real billing actions (briefly) to ensure results are 100% accurate. Press Enter to accept and continue.
 
-```bash
-docker pull ghcr.io/acm-dev/aws-gpu-instance-finder:latest
-```
+### 2. Region Selection
+Select the AWS regions you want to scan.
+- `*` marks your default region from AWS config.
+- `Space` to toggle, `a` to select all, `n` to select none.
+- `Enter` to confirm.
 
-### Run with environment variables
+### 3. Instance Selection
+Choose the GPU instance types to check. Modern types like `p5.48xlarge` and `g6.48xlarge` are pre-selected by default.
+- `Space` to toggle, `a` to select all, `n` to select none.
+- `Enter` to start the scan.
 
-```bash
-docker run -it --rm \
-  -e AWS_ACCESS_KEY_ID \
-  -e AWS_SECRET_ACCESS_KEY \
-  -e AWS_SESSION_TOKEN \
-  -v $(pwd)/output:/app/output \
-  ghcr.io/acm-dev/aws-gpu-instance-finder:latest
-```
+### 4. Live Capacity Scan
+Watch the live progress bar and spinner as workers fan out across regions and AZs to perform ODCR + CB checks.
 
-### Run with AWS profile
-
-```bash
-docker run -it --rm \
-  -v ~/.aws:/root/.aws:ro \
-  -e AWS_PROFILE=your-profile \
-  -v $(pwd)/output:/app/output \
-  ghcr.io/acm-dev/aws-gpu-instance-finder:latest
-```
-
-### Build locally
-
-```bash
-docker build -t gpu-capacity-finder .
-docker run -it --rm \
-  -e AWS_ACCESS_KEY_ID \
-  -e AWS_SECRET_ACCESS_KEY \
-  -e AWS_SESSION_TOKEN \
-  -v $(pwd)/output:/app/output \
-  gpu-capacity-finder
-```
-
-Output files are written to `/app/output/` inside the container — mount a host directory to persist them.
+### 5. Results Table
+Review the final status in a sortable table with GPU specs, ODCR status, and CB pricing.
 
 ---
 
-## Usage walkthrough
-
-### Step 1 — Auth check
-The tool prints your account ID, ARN, and org details, then exits if `--check-auth` is passed.
-
-### Step 2 — Region selection
-Regions are tested for SCP access. Accessible regions are shown with `✓`, blocked ones with `✗`. Select by entering comma-separated numbers, or press Enter to use all accessible regions.
-
-```
-  1.  ap-southeast-1        Singapore            [✓ Accessible]
-  2.  ap-southeast-3        Jakarta              [✓ Accessible]
-  3.  ap-northeast-1        Tokyo                [✓ Accessible]
-  4.  ap-northeast-2        Seoul                [✗ SCP Blocked]
-  ...
-```
-
-### Step 3 — Instance selection
-Instance types are listed with live GPU specs from the AWS API. Select by number or press Enter for all P-series (default).
-
-```
-   1. [P] p3.16xlarge        8x V100 16GB (128GB total) 64vCPU
-   2. [P] p4d.24xlarge       8x A100 40GB (320GB total) 96vCPU
-   3. [P] p5.48xlarge        8x H100 80GB (640GB total) 192vCPU
-   4. [P] p5en.48xlarge      8x H200 141GB (1128GB total) 192vCPU
-   ...
-```
-
-### Step 4 — Scan
-Runs in parallel across all region/instance/AZ combinations. Shows a progress bar. ODCR checks perform a real reservation then immediately cancel it — so results reflect actual capacity, not just API dry-run responses.
-
-### Step 5 — TUI report
+## Navigation Keys
 
 | Key | Action |
 |---|---|
-| `↑` `↓` | Navigate rows |
-| `Enter` | Expand Capacity Block pricing for selected row |
-| `f` | Toggle filter — show ODCR-confirmed rows only |
-| `s` | Save report (choose MD / JSON / HTML / all) |
-| `q` | Quit |
+| `↑` / `↓` or `j` / `k` | Navigate lists and tables |
+| `Space` | Toggle selection |
+| `a` | Select All |
+| `n` | Select None |
+| `Enter` | Proceed to next step / Select row |
+| `f` | Toggle ODCR-only filter |
+| `d` | Toggle detail panel (CB pricing breakdown) |
+| `s` | Save report (choose format: md/json/html/all) |
+| `q` | Quit (with confirmation) |
+| `Ctrl+C` | Force quit |
 
 ---
 
-## Output formats
+## Why Go?
 
-Reports are saved as `gpu-capacity-YYYY-MM-DD.{ext}` in the same directory as the script (or `/app/output/` in Docker).
-
-| Format | Contents |
-|---|---|
-| `.md` | Markdown tables — compatible with `convert_to_docx.py` for Word export |
-| `.json` | Structured data with GPU specs, ODCR status, and full CB pricing per AZ |
-| `.html` | Self-contained browser report with styled tables |
+This version is a significant upgrade from the original Python implementation:
+1. **Speed**: Concurrent checks are handled via lightweight goroutines, making it significantly faster than the `boto3` equivalent.
+2. **Zero Dependencies**: Compiles to a single static binary. No need for `pip install` or virtual environments.
+3. **Robustness**: Static typing and built-in error handling ensure a stable experience even with complex AWS API interactions.
+4. **Full Feature Parity**: Includes Capacity Block checks, on-demand pricing, and multi-format exports.
 
 ---
 
-## ODCR status codes
+## Disclaimer
 
-| Status | Meaning |
-|---|---|
-| `Confirmed` | Real reservation succeeded and was immediately cancelled — capacity confirmed |
-| `InsufficientInstanceCapacity` | No stock available in this AZ |
-| `Unsupported` | Instance type does not support ODCR |
-| `InstanceLimitExceeded (quota N vCPU)` | Account vCPU quota too low — capacity may exist but quota increase needed |
-| `Error` | Unexpected API error |
+**WARNING**: This tool performs **REAL** capacity reservation attempts. While each successful reservation is immediately cancelled, it may briefly incur billing costs or impact your service quotas. Use at your own risk.
 
 ---
 
-## Troubleshooting
-
-### Capacity Block shows "—" or error
-
-If CB pricing shows `—` in the TUI or errors like:
-- `InvalidParameterValue: The end date is not valid...`
-- `Capacity Block end date exceeds AWS limit (account may need verification)`
-
-Your AWS account has not been verified for Capacity Block purchases. To fix:
-
-1. Go to **AWS Support Center** → **Create case** → **Account and billing**
-2. Request **Capacity Block reservation access** for your account
-3. Include the instance types and regions you need
-4. Wait for approval (typically 1-3 business days)
-
-Once verified, CB pricing will appear normally.
-
-### RequestLimitExceeded on DescribeCapacityBlockOfferings
-
-AWS throttles CB queries. The scan runs in parallel and may exceed the rate limit. If you see this:
-- Reduce the number of regions/instances scanned at once
-- Wait a few minutes and retry
-
----
-
-## CI/CD
-
-The Docker image is built and pushed automatically via GitHub Actions on every push to `main`. The workflow uses a self-hosted runner and pushes to `ghcr.io/acm-dev/aws-gpu-instance-finder`.
-
-Tags published:
-- `latest` — latest main branch build
-- `sha-<short>` — pinned to a specific commit
-- branch name / PR number for non-main builds
+Made by [acuitmesh](https://acuitmesh.com)'s Dev Team. For issues or contributions, please open a GitHub issue or pull request.
