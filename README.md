@@ -50,7 +50,28 @@ GPU specs (count, VRAM, vCPUs) are fetched live from the AWS API — not hardcod
 
 ## Running locally
 
-### With uv (recommended — no install needed)
+### Quick start with setup scripts (recommended)
+
+Setup scripts auto-detect Python and uv, show install instructions if missing, then launch the tool.
+
+#### Linux / macOS
+
+```bash
+chmod +x scripts/setup-and-run.sh
+./scripts/setup-and-run.sh
+```
+
+#### Windows (PowerShell)
+
+```powershell
+.\scripts\setup-and-run.ps1
+```
+
+> If blocked by execution policy, run: `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`
+
+### Manual — with uv (no install needed)
+
+#### Linux / macOS
 
 ```bash
 # Full interactive TUI
@@ -61,6 +82,22 @@ uv run --with "boto3[crt]" --with textual --with rich python3 gpu_capacity_finde
 
 # Non-interactive — scan all accessible regions, save all output formats
 uv run --with "boto3[crt]" --with textual --with rich python3 gpu_capacity_finder.py --no-tui --all
+```
+
+#### Windows (PowerShell)
+
+```powershell
+uv run --with 'boto3[crt]' --with textual --with rich python gpu_capacity_finder.py
+uv run --with 'boto3[crt]' --with textual --with rich python gpu_capacity_finder.py --check-auth
+uv run --with 'boto3[crt]' --with textual --with rich python gpu_capacity_finder.py --no-tui --all
+```
+
+> **Note:** Use `python` instead of `python3` on Windows. Single quotes around `boto3[crt]` are required in PowerShell.
+
+#### Windows (cmd.exe)
+
+```cmd
+uv run --with "boto3[crt]" --with textual --with rich python gpu_capacity_finder.py
 ```
 
 ### With pip
@@ -180,6 +217,31 @@ Reports are saved as `gpu-capacity-YYYY-MM-DD.{ext}` in the same directory as th
 | `Unsupported` | Instance type does not support ODCR |
 | `InstanceLimitExceeded (quota N vCPU)` | Account vCPU quota too low — capacity may exist but quota increase needed |
 | `Error` | Unexpected API error |
+
+---
+
+## Troubleshooting
+
+### Capacity Block shows "—" or error
+
+If CB pricing shows `—` in the TUI or errors like:
+- `InvalidParameterValue: The end date is not valid...`
+- `Capacity Block end date exceeds AWS limit (account may need verification)`
+
+Your AWS account has not been verified for Capacity Block purchases. To fix:
+
+1. Go to **AWS Support Center** → **Create case** → **Account and billing**
+2. Request **Capacity Block reservation access** for your account
+3. Include the instance types and regions you need
+4. Wait for approval (typically 1-3 business days)
+
+Once verified, CB pricing will appear normally.
+
+### RequestLimitExceeded on DescribeCapacityBlockOfferings
+
+AWS throttles CB queries. The scan runs in parallel and may exceed the rate limit. If you see this:
+- Reduce the number of regions/instances scanned at once
+- Wait a few minutes and retry
 
 ---
 

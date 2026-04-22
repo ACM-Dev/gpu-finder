@@ -2,9 +2,9 @@
 GPU Capacity Finder — interactive TUI for finding EC2 GPU instance capacity.
 
 Usage:
-    uv run --with "boto3[crt]" --with textual --with rich python3 sagemaker/gpu-finder/gpu_capacity_finder.py
-    uv run --with "boto3[crt]" --with textual --with rich python3 sagemaker/gpu-finder/gpu_capacity_finder.py --check-auth
-    uv run --with "boto3[crt]" --with textual --with rich python3 sagemaker/gpu-finder/gpu_capacity_finder.py --no-tui --all
+    uv run --with "boto3[crt]" --with textual --with rich python3 gpu_capacity_finder.py
+    uv run --with "boto3[crt]" --with textual --with rich python3 gpu_capacity_finder.py --check-auth
+    uv run --with "boto3[crt]" --with textual --with rich python3 gpu_capacity_finder.py --no-tui --all
 """
 
 from __future__ import annotations
@@ -13,9 +13,10 @@ import argparse
 import json
 import os
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 import boto3
@@ -36,6 +37,7 @@ CANDIDATE_REGIONS = [
     ("us-east-1", "N. Virginia"),
     ("us-east-2", "Ohio"),
     ("us-west-2", "Oregon"),
+    ("us-west-1", "N. California")
 ]
 
 # Instances that may not exist in all regions — queried per-region
@@ -51,7 +53,22 @@ AWS_SILICON = ["trn1.32xlarge", "inf2.48xlarge"]
 
 ALL_CANDIDATES = P_SERIES + G_SERIES + AWS_SILICON
 
-CB_DURATIONS_HOURS = [168, 336, 672, 1344]  # 1w, 2w, 4w, 8w
+CB_DURATIONS_HOURS = [168, 336, 672, 1344, 3360]  # 1w, 2w, 4w, 8w, 20w
+
+# Pricing API location strings (only available via us-east-1 endpoint)
+REGION_TO_PRICING_LOCATION = {
+    "us-east-1":      "US East (N. Virginia)",
+    "us-east-2":      "US East (Ohio)",
+    "us-west-1":      "US West (N. California)",
+    "us-west-2":      "US West (Oregon)",
+    "ap-southeast-1": "Asia Pacific (Singapore)",
+    "ap-southeast-2": "Asia Pacific (Sydney)",
+    "ap-southeast-3": "Asia Pacific (Jakarta)",
+    "ap-southeast-7": "Asia Pacific (Thailand)",
+    "ap-northeast-1": "Asia Pacific (Tokyo)",
+    "ap-northeast-2": "Asia Pacific (Seoul)",
+    "ap-south-1":     "Asia Pacific (Mumbai)",
+}
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -79,7 +96,7 @@ class CbOffering:
     duration_hours: int
     start_date: str
     end_date: str
-    upfront_fee: int
+    upfront_fee: float
     az: str
 
 
@@ -88,10 +105,28 @@ class CapacityResult:
     region: str
     instance_type: str
     az: str
-    odcr_status: str       # Confirmed / InsufficientInstanceCapacity / Unsupported / InstanceLimitExceeded / Error / Skipped
+    odcr_status: str
     odcr_detail: str = ""
     cb_offerings: list[CbOffering] = field(default_factory=list)
     cb_error: str = ""
+    ondemand_price_hr: Optional[float] = None
+
+
+# Fallback GPU specs when API fetch fails
+GPU_SPECS_FALLBACK = {
+    "p3.16xlarge":  GpuSpec("p3.16xlarge", 8, "V100",   "NVIDIA", 16384, 131072, 64),
+    "p3dn.24xlarge": GpuSpec("p3dn.24xlarge", 8, "V100",  "NVIDIA", 16384, 131072, 96),
+    "p4d.24xlarge": GpuSpec("p4d.24xlarge", 8, "A100",   "NVIDIA", 40960, 327680, 96),
+    "p4de.24xlarge": GpuSpec("p4de.24xlarge", 8, "A100",  "NVIDIA", 81920, 655360, 96),
+    "p5.48xlarge":  GpuSpec("p5.48xlarge", 8, "H100",    "NVIDIA", 81920, 655360, 192),
+    "p5en.48xlarge": GpuSpec("p5en.48xlarge", 8, "H200",  "NVIDIA", 144896, 1159168, 192),
+    "p5e.48xlarge": GpuSpec("p5e.48xlarge", 8, "H200",   "NVIDIA", 144896, 1159168, 192),
+    "g5.48xlarge":  GpuSpec("g5.48xlarge", 8, "A10G",    "NVIDIA", 24576, 196608, 192),
+    "g6.48xlarge":  GpuSpec("g6.48xlarge", 8, "L4",      "NVIDIA", 24576, 196608, 192),
+    "g6e.48xlarge": GpuSpec("g6e.48xlarge", 8, "L40S",   "NVIDIA", 49152, 393216, 192),
+    "trn1.32xlarge": GpuSpec("trn1.32xlarge", 16, "Trainium", "AWS", 32768, 524288, 128),
+    "inf2.48xlarge": GpuSpec("inf2.48xlarge", 12, "Inferentia2", "AWS", 32768, 393216, 192),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +139,7 @@ def check_auth() -> dict:
         identity = sts.get_caller_identity()
     except (NoCredentialsError, BotoCoreError) as e:
         print(f"ERROR: No AWS credentials found — {e}")
+        print("Please login with `aws login` or `aws configure`, or set credentials in environment variables.")
         print("Set AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN, or use AWS_PROFILE.")
         sys.exit(1)
     except ClientError as e:
@@ -147,27 +183,40 @@ def check_region_access(region: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def fetch_gpu_specs(instance_types: list[str], region: str = "us-east-1") -> dict[str, GpuSpec]:
-    ec2 = boto3.client("ec2", region_name=region)
     specs: dict[str, GpuSpec] = {}
-    try:
-        paginator = ec2.get_paginator("describe_instance_types")
-        for page in paginator.paginate(InstanceTypes=[t for t in instance_types if t not in REGION_SPECIFIC]):
-            for it in page["InstanceTypes"]:
-                itype = it["InstanceType"]
-                gpu_info = it.get("GpuInfo", {})
-                gpus = gpu_info.get("Gpus", [{}])
-                gpu = gpus[0] if gpus else {}
-                specs[itype] = GpuSpec(
-                    instance_type=itype,
-                    gpu_count=gpu.get("Count", 0),
-                    gpu_name=gpu.get("Name", "N/A"),
-                    gpu_mfr=gpu.get("Manufacturer", "N/A"),
-                    per_gpu_mib=gpu.get("MemoryInfo", {}).get("SizeInMiB", 0),
-                    total_gpu_mib=gpu_info.get("TotalGpuMemoryInMiB", 0),
-                    vcpus=it.get("VCpuInfo", {}).get("DefaultVCpus", 0),
-                )
-    except ClientError:
-        pass
+    # Try the provided region first, then fall back to us-east-1 which has the broadest instance coverage
+    regions_to_try = list(dict.fromkeys([region, "us-east-1", "ap-northeast-1"]))
+    to_fetch = [t for t in instance_types if t not in REGION_SPECIFIC]
+
+    for r in regions_to_try:
+        remaining = [t for t in to_fetch if t not in specs]
+        if not remaining:
+            break
+        ec2 = boto3.client("ec2", region_name=r)
+        # Fetch one at a time — batch calls fail entirely if any single type doesn't exist in the region
+        for itype in remaining:
+            try:
+                resp = ec2.describe_instance_types(InstanceTypes=[itype])
+                for it in resp["InstanceTypes"]:
+                    gpu_info = it.get("GpuInfo", {})
+                    gpus = gpu_info.get("Gpus", [{}])
+                    gpu = gpus[0] if gpus else {}
+                    specs[itype] = GpuSpec(
+                        instance_type=itype,
+                        gpu_count=gpu.get("Count", 0),
+                        gpu_name=gpu.get("Name", "N/A"),
+                        gpu_mfr=gpu.get("Manufacturer", "N/A"),
+                        per_gpu_mib=gpu.get("MemoryInfo", {}).get("SizeInMiB", 0),
+                        total_gpu_mib=gpu_info.get("TotalGpuMemoryInMiB", 0),
+                        vcpus=it.get("VCpuInfo", {}).get("DefaultVCpus", 0),
+                    )
+            except ClientError:
+                pass  # type doesn't exist in this region, try next region
+
+    # Always fill remaining gaps from hardcoded fallback (confirmed from AWS API)
+    for t in instance_types:
+        if t not in specs and t in GPU_SPECS_FALLBACK:
+            specs[t] = GPU_SPECS_FALLBACK[t]
     return specs
 
 
@@ -195,7 +244,54 @@ def fetch_gpu_specs_for_region(instance_types: list[str], region: str) -> dict[s
             )
     except ClientError:
         pass
+    for t in region_specific:
+        if t not in specs and t in GPU_SPECS_FALLBACK:
+            specs[t] = GPU_SPECS_FALLBACK[t]
     return specs
+
+
+# ---------------------------------------------------------------------------
+# On-demand pricing
+# ---------------------------------------------------------------------------
+
+def fetch_ondemand_prices(instance_types: list[str], regions: list[str]) -> dict[tuple[str, str], float]:
+    """Returns {(region, instance_type): price_per_hour}. Uses us-east-1 pricing endpoint."""
+    prices: dict[tuple[str, str], float] = {}
+    try:
+        pricing = boto3.client("pricing", region_name="us-east-1")
+    except Exception:
+        return prices
+
+    for region in regions:
+        location = REGION_TO_PRICING_LOCATION.get(region)
+        if not location:
+            continue
+        for itype in instance_types:
+            try:
+                resp = pricing.get_products(
+                    ServiceCode="AmazonEC2",
+                    Filters=[
+                        {"Type": "TERM_MATCH", "Field": "instanceType",    "Value": itype},
+                        {"Type": "TERM_MATCH", "Field": "location",        "Value": location},
+                        {"Type": "TERM_MATCH", "Field": "tenancy",         "Value": "Shared"},
+                        {"Type": "TERM_MATCH", "Field": "operatingSystem", "Value": "Linux"},
+                        {"Type": "TERM_MATCH", "Field": "capacitystatus",  "Value": "Used"},
+                        {"Type": "TERM_MATCH", "Field": "preInstalledSw",  "Value": "NA"},
+                    ],
+                    MaxResults=1,
+                )
+                if not resp["PriceList"]:
+                    continue
+                product = json.loads(resp["PriceList"][0])
+                for term in product["terms"]["OnDemand"].values():
+                    for dim in term["priceDimensions"].values():
+                        price = float(dim["pricePerUnit"].get("USD", 0))
+                        if price > 0:
+                            prices[(region, itype)] = price
+            except (ClientError, KeyError, json.JSONDecodeError):
+                pass
+
+    return prices
 
 
 # ---------------------------------------------------------------------------
@@ -270,42 +366,58 @@ def check_odcr(ec2, instance_type: str, az: str) -> tuple[str, str]:
                 pass  # best-effort cancel
 
 
-def check_capacity_blocks(ec2, instance_type: str, az: str) -> tuple[list[CbOffering], str]:
+def check_capacity_blocks(ec2, instance_type: str) -> tuple[list[CbOffering], str]:
+    """Query CB offerings for the whole region (not per-AZ) — CB AZ is determined by AWS."""
     offerings: list[CbOffering] = []
-    now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-    end_range = datetime.utcnow().replace(year=datetime.utcnow().year + 1).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.utcnow()
+    now_str = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     for hours in CB_DURATIONS_HOURS:
-        try:
-            resp = ec2.describe_capacity_block_offerings(
-                InstanceType=instance_type,
-                InstanceCount=1,
-                CapacityDurationHours=hours,
-                StartDateRange=now,
-                EndDateRange=end_range,
-            )
-            az_offers = [
-                o for o in resp.get("CapacityBlockOfferings", [])
-                if o.get("AvailabilityZone") == az
-            ]
-            if az_offers:
-                earliest = sorted(az_offers, key=lambda x: x["StartDate"])[0]
-                offerings.append(CbOffering(
-                    duration_hours=hours,
-                    start_date=earliest["StartDate"][:10],
-                    end_date=earliest["EndDate"][:10],
-                    upfront_fee=earliest["UpfrontFee"],
-                    az=earliest["AvailabilityZone"],
-                ))
-        except ClientError as e:
-            code = e.response["Error"]["Code"]
-            if code in ("InvalidAction", "UnsupportedOperation"):
-                return [], "Not supported in this region"
-            if code == "PendingVerification":
-                return [], "Org master account pending verification"
-            return [], f"{code}: {e.response['Error'].get('Message', '')}"
-        except Exception as e:
-            return [], str(e)
+        # EndDateRange must be far enough ahead that a block of this duration can fit within 20 weeks.
+        # Use 20 weeks minus the block duration as the latest possible start, so the block ends within window.
+        max_start = now + timedelta(weeks=20) - timedelta(hours=hours)
+        if max_start <= now:
+            continue  # block too long to fit in 20-week window
+        end_range = max_start.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        for attempt in range(4):  # retry up to 4 times on throttle
+            try:
+                resp = ec2.describe_capacity_block_offerings(
+                    InstanceType=instance_type,
+                    InstanceCount=1,
+                    CapacityDurationHours=hours,
+                    StartDateRange=now_str,
+                    EndDateRange=end_range,
+                )
+                all_offers = resp.get("CapacityBlockOfferings", [])
+                if all_offers:
+                    earliest = sorted(all_offers, key=lambda x: x["StartDate"])[0]
+                    offerings.append(CbOffering(
+                        duration_hours=hours,
+                        start_date=str(earliest["StartDate"])[:10],
+                        end_date=str(earliest["EndDate"])[:10],
+                        upfront_fee=float(earliest["UpfrontFee"]),  # API returns string e.g. "1982.4000"
+                        az=earliest["AvailabilityZone"],
+                    ))
+                break  # success
+            except ClientError as e:
+                code = e.response["Error"]["Code"]
+                msg = e.response["Error"].get("Message", "")
+                if code == "RequestLimitExceeded" and attempt < 3:
+                    time.sleep(2 ** attempt)  # 1s, 2s, 4s backoff
+                    continue
+                if code in ("InvalidAction", "UnsupportedOperation"):
+                    return [], "Not supported in this region"
+                if code == "PendingVerification":
+                    return [], "Org master account pending verification"
+                if code == "InvalidParameterValue":
+                    if "not supported for Capacity Blocks" in msg:
+                        return [], f"CB not supported: {msg}"
+                    # Duration or date issue — skip just this duration
+                    break
+                return [], f"{code}: {msg}"
+            except Exception as e:
+                break  # skip this duration on unexpected error
 
     return offerings, ""
 
@@ -318,9 +430,11 @@ def scan_region_instance(region: str, instance_type: str) -> list[CapacityResult
     if not azs:
         return results
 
+    # Query CB once per region/instance — not per AZ (AWS determines which AZ has CB capacity)
+    cb_offerings, cb_error = check_capacity_blocks(ec2, instance_type)
+
     for az in sorted(azs):
         odcr_status, odcr_detail = check_odcr(ec2, instance_type, az)
-        cb_offerings, cb_error = check_capacity_blocks(ec2, instance_type, az)
         results.append(CapacityResult(
             region=region,
             instance_type=instance_type,
@@ -373,7 +487,7 @@ def export_markdown(results: list[CapacityResult], gpu_specs: dict[str, GpuSpec]
                 monthly = int(cb.upfront_fee / (cb.duration_hours / 24 / 30.44))
                 lines.append(
                     f"| `{r.instance_type}` | {gpu_str} | {r.region} | {cb.az.split('-')[-1]} "
-                    f"| {weeks}w | {cb.start_date} | {cb.end_date} | ${cb.upfront_fee:,} | ~${monthly:,}/mo |"
+                    f"| {weeks}w | {cb.start_date} | {cb.end_date} | ${int(cb.upfront_fee):,} | ~${monthly:,}/mo |"
                 )
     else:
         lines.append("> No Capacity Block offerings found.")
@@ -432,7 +546,8 @@ def export_html(results: list[CapacityResult], gpu_specs: dict[str, GpuSpec], ac
     for r in results:
         spec = gpu_specs.get(r.instance_type)
         gpu_str = spec.summary if spec else "N/A"
-        cb_str = f"${r.cb_offerings[0].upfront_fee:,}/1w" if r.cb_offerings else (r.cb_error or "—")
+        cb1 = next((cb for cb in r.cb_offerings if cb.duration_hours == 168), None)
+        cb_str = f"{cb1.start_date} / ${int(cb1.upfront_fee):,}/1w" if cb1 else (r.cb_error or "—")
         color = status_color(r.odcr_status)
         rows += (
             f"<tr>"
@@ -468,7 +583,7 @@ def export_html(results: list[CapacityResult], gpu_specs: dict[str, GpuSpec], ac
 <h2>ODCR &amp; Capacity Block Results</h2>
 <table>
 <tr>
-  <th>Instance</th><th>GPUs</th><th>Region</th><th>AZ</th><th>ODCR Status</th><th>CB (1 week)</th>
+  <th>Instance</th><th>GPUs</th><th>Region</th><th>AZ</th><th>ODCR Status</th><th>CB Earliest Start / 1w Price</th>
 </tr>
 {rows}
 </table>
@@ -554,7 +669,7 @@ def run_scan(regions: list[str], instances: list[str], progress_cb=None) -> list
     tasks = [(r, i) for r in regions for i in instances]
     results: list[CapacityResult] = []
 
-    with ThreadPoolExecutor(max_workers=10) as ex:
+    with ThreadPoolExecutor(max_workers=5) as ex:
         futures = {ex.submit(scan_region_instance, r, i): (r, i) for r, i in tasks}
         for fut in as_completed(futures):
             r, i = futures[fut]
@@ -682,17 +797,20 @@ def run_tui(results: list[CapacityResult], gpu_specs: dict[str, GpuSpec], accoun
         def _refresh_table(self):
             table = self.query_one("#main-table", DataTable)
             table.clear(columns=True)
-            table.add_columns("Instance", "GPUs", "Region", "AZ", "ODCR Status", "CB 1w", "CB 4w")
+            table.add_columns("Instance", "GPUs", "Region", "AZ", "ODCR Status", "CB Start", "CB 1w", "CB 4w")
             for r in self._visible_results():
                 spec = self._gpu_specs.get(r.instance_type)
                 gpu_str = spec.summary if spec else "—"
-                cb1 = next((f"${cb.upfront_fee:,}" for cb in r.cb_offerings if cb.duration_hours == 168), "—")
-                cb4 = next((f"${cb.upfront_fee:,}" for cb in r.cb_offerings if cb.duration_hours == 672), "—")
+                cb1_offer = next((cb for cb in r.cb_offerings if cb.duration_hours == 168), None)
+                cb4_offer = next((cb for cb in r.cb_offerings if cb.duration_hours == 672), None)
+                cb_start = cb1_offer.start_date if cb1_offer else "—"
+                cb1 = f"${int(cb1_offer.upfront_fee):,}" if cb1_offer else "—"
+                cb4 = f"${int(cb4_offer.upfront_fee):,}" if cb4_offer else "—"
                 table.add_row(
                     r.instance_type, gpu_str, r.region,
                     r.az.split("-")[-1],
                     odcr_text(r.odcr_status),
-                    cb1, cb4,
+                    cb_start, cb1, cb4,
                 )
 
         def action_toggle_filter(self):
@@ -727,7 +845,7 @@ def run_tui(results: list[CapacityResult], gpu_specs: dict[str, GpuSpec], accoun
                 for cb in r.cb_offerings:
                     weeks = cb.duration_hours // 168
                     monthly = int(cb.upfront_fee / (cb.duration_hours / 24 / 30.44))
-                    lines.append(f"  {weeks:2}w  |  Start: {cb.start_date}  End: {cb.end_date}  |  ${cb.upfront_fee:,} upfront  (~${monthly:,}/mo)")
+                    lines.append(f"  {weeks:2}w  |  Start: {cb.start_date}  End: {cb.end_date}  |  ${int(cb.upfront_fee):,} upfront  (~${monthly:,}/mo)")
                 panel.update("\n".join(lines))
             panel.add_class("visible")
 
@@ -752,14 +870,20 @@ def print_plain_report(results: list[CapacityResult], gpu_specs: dict[str, GpuSp
         table.add_column("Region")
         table.add_column("AZ")
         table.add_column("ODCR")
+        table.add_column("CB Start")
         table.add_column("CB 1w")
+        table.add_column("CB 4w")
         for r in results:
             spec = gpu_specs.get(r.instance_type)
             gpu_str = spec.summary if spec else "—"
-            cb1 = next((f"${cb.upfront_fee:,}" for cb in r.cb_offerings if cb.duration_hours == 168), "—")
+            cb1_offer = next((cb for cb in r.cb_offerings if cb.duration_hours == 168), None)
+            cb4_offer = next((cb for cb in r.cb_offerings if cb.duration_hours == 672), None)
+            cb_start = cb1_offer.start_date if cb1_offer else "—"
+            cb1 = f"${int(cb1_offer.upfront_fee):,}" if cb1_offer else "—"
+            cb4 = f"${int(cb4_offer.upfront_fee):,}" if cb4_offer else "—"
             status_style = "green" if "Confirmed" in r.odcr_status else ("red" if "Insufficient" in r.odcr_status else "yellow")
             table.add_row(r.instance_type, gpu_str, r.region, r.az.split("-")[-1],
-                          f"[{status_style}]{r.odcr_status}[/{status_style}]", cb1)
+                          f"[{status_style}]{r.odcr_status}[/{status_style}]", cb_start, cb1, cb4)
         console.print(table)
     except ImportError:
         for r in results:
@@ -782,13 +906,26 @@ def main():
     print("=" * 60)
     identity = check_auth()
     account_id = identity["Account"]
+    
+    print("=" * 60)
+    # Perform warning: 
+    print("\n[WARNING]: This tool performs real capacity reservation attempts (which do not succeed but do test capacity), may have some billing implications, and makes multiple API calls. Use with caution and consider using --check-auth to verify credentials without scanning.")
+    print("\nA Capacity Reservation cost is incurred if the reservation is successful, but since this tool immediately cancels any successful reservations, you should not be charged or a dollar charged. However, if you have very tight capacity in your account and a reservation succeeds, it could temporarily reduce your available capacity until the cancellation is processed. Additionally, there may be API rate limits to consider if scanning many regions/instances.")
+    print("=" * 60)
+    print("\n Do you want to proceed? (y/N)")
+    proceed = input("> ").strip().lower()
+    if proceed != "y":
+        print("Aborting.")
+        return
+    
+    
 
     if args.check_auth:
         return
 
     print("\nChecking region access...")
     region_status: list[tuple[str, str, bool]] = []
-    with ThreadPoolExecutor(max_workers=10) as ex:
+    with ThreadPoolExecutor(max_workers=5) as ex:
         futures = {ex.submit(check_region_access, code): (code, name) for code, name in CANDIDATE_REGIONS}
         for fut in as_completed(futures):
             code, name = futures[fut]
@@ -801,7 +938,7 @@ def main():
         selected_instances = P_SERIES + G_SERIES
     else:
         selected_regions = select_regions(region_status)
-        print("\nFetching GPU specs...")
+        print("\nFinding available GPUs...")
         base_specs = fetch_gpu_specs(ALL_CANDIDATES, selected_regions[0] if selected_regions else "us-east-1")
         selected_instances = select_instances(base_specs)
 
