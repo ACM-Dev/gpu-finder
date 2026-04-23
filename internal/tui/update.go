@@ -186,7 +186,7 @@ func Update(m types.Model, msg tea.Msg) (types.Model, tea.Cmd) {
 	case types.AuthMsg:
 		if msg.Err != nil {
 			m.ErrorMsg = msg.Err.Error()
-			return m, tea.Quit
+			return m, nil
 		}
 		m.AwsCfg = msg.Cfg
 		m.AccountID = msg.AccountID
