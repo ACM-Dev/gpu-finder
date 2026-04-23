@@ -1,4 +1,4 @@
-# AWS GPU Instance Capacity Finder (Go Version)
+# AWS GPU Instance Capacity Finder
 
 A high-performance, interactive TUI tool written in Go for checking EC2 GPU instance availability across AWS regions. This tool performs **real** On-Demand Capacity Reservation (ODCR) tests and **Capacity Block** availability checks to confirm actual capacity beyond simple dry-runs.
 
@@ -156,16 +156,6 @@ Review the final status in a sortable table with GPU specs, ODCR status, and CB 
 | `s` | Save report (choose format: md/json/html/all) |
 | `q` | Quit (with confirmation) |
 | `Ctrl+C` | Force quit |
-
----
-
-## Why Go?
-
-This version is a significant upgrade from the original Python implementation:
-1. **Speed**: Concurrent checks are handled via lightweight goroutines, making it significantly faster than the `boto3` equivalent.
-2. **Zero Dependencies**: Compiles to a single static binary. No need for `pip install` or virtual environments.
-3. **Robustness**: Static typing and built-in error handling ensure a stable experience even with complex AWS API interactions.
-4. **Full Feature Parity**: Includes Capacity Block checks, on-demand pricing, and multi-format exports.
 
 ---
 
