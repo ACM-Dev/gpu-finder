@@ -39,11 +39,21 @@ $ArchiveBin = "gpu-finder-$OS-$Arch.exe"
 Write-Host "📦 Downloading $FileName..."
 Invoke-WebRequest -Uri "$DownloadUrl/$FileName" -OutFile "$env:TEMP\$FileName" -UseBasicParsing
 
-Write-Host "📂 Extracting to $InstallDir..."
+Write-Host "📂 Extracting..."
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 tar xzf "$env:TEMP\$FileName" -C "$env:TEMP"
+
+Write-Host "🔧 Renaming to $BinName..."
 Move-Item "$env:TEMP\$ArchiveBin" $BinPath -Force
 Remove-Item "$env:TEMP\$FileName" -Force
+
+# Add to user PATH if not already present
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($userPath -notlike "*$InstallDir*") {
+    Write-Host "🛤️  Adding $InstallDir to user PATH..."
+    [Environment]::SetEnvironmentVariable("Path", "$userPath;$InstallDir", "User")
+    $env:Path = "$env:Path;$InstallDir"
+}
 
 Write-Host ""
 Write-Host "✅ Installed to $BinPath"
