@@ -24,35 +24,56 @@ Made by [acuitmeshdev](https://acuitmesh.com).
 - **AWS Credentials**: Configured via `aws configure`, environment variables, or IAM roles.
 - **Permissions**: Requires `ec2:Describe*`, `ec2:CreateCapacityReservation`, `ec2:CancelCapacityReservation`, `ec2:DescribeCapacityBlockOfferings`, `pricing:GetProducts`, and `sts:GetCallerIdentity`.
 
-### Option 1: Download Pre-built Binary
+### Option 1: Auto-Install Script (Recommended)
 
-Download the latest release from [Releases](https://github.com/ACM-Dev/gpu-finder/releases):
+The install script auto-detects your OS/architecture, checks for existing installations, and downloads only if needed.
+
+**Linux / macOS:**
+```bash
+curl -fsSL https://github.com/ACM-Dev/gpu-finder/raw/main/scripts/install.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://github.com/ACM-Dev/gpu-finder/raw/main/scripts/install.ps1 | iex
+```
+
+### Option 2: Manual Download
+
+Download from [Releases](https://github.com/ACM-Dev/gpu-finder/releases/tag/v1.0.0):
 
 ```bash
 # Linux (amd64)
-curl -LO https://github.com/ACM-Dev/gpu-finder/releases/latest/download/gpu-finder-vX.Y.Z-linux-amd64.tar.gz
-tar xzf gpu-finder-vX.Y.Z-linux-amd64.tar.gz
+curl -LO https://github.com/ACM-Dev/gpu-finder/releases/download/v1.0.0/gpu-finder-v1.0.0-linux-amd64.tar.gz
+tar xzf gpu-finder-v1.0.0-linux-amd64.tar.gz
+chmod +x gpu-finder
+./gpu-finder
+
+# Linux (arm64)
+curl -LO https://github.com/ACM-Dev/gpu-finder/releases/download/v1.0.0/gpu-finder-v1.0.0-linux-arm64.tar.gz
+tar xzf gpu-finder-v1.0.0-linux-arm64.tar.gz
 chmod +x gpu-finder
 ./gpu-finder
 
 # macOS (arm64 / Apple Silicon)
-curl -LO https://github.com/ACM-Dev/gpu-finder/releases/latest/download/gpu-finder-vX.Y.Z-darwin-arm64.tar.gz
-tar xzf gpu-finder-vX.Y.Z-darwin-arm64.tar.gz
+curl -LO https://github.com/ACM-Dev/gpu-finder/releases/download/v1.0.0/gpu-finder-v1.0.0-darwin-arm64.tar.gz
+tar xzf gpu-finder-v1.0.0-darwin-arm64.tar.gz
 chmod +x gpu-finder
 ./gpu-finder
 
 # macOS (amd64 / Intel)
-curl -LO https://github.com/ACM-Dev/gpu-finder/releases/latest/download/gpu-finder-vX.Y.Z-darwin-amd64.tar.gz
-tar xzf gpu-finder-vX.Y.Z-darwin-amd64.tar.gz
+curl -LO https://github.com/ACM-Dev/gpu-finder/releases/download/v1.0.0/gpu-finder-v1.0.0-darwin-amd64.tar.gz
+tar xzf gpu-finder-v1.0.0-darwin-amd64.tar.gz
 chmod +x gpu-finder
 ./gpu-finder
 
 # Windows (amd64)
-# Download gpu-finder-vX.Y.Z-windows-amd64.zip from Releases, extract, then run:
+curl -LO https://github.com/ACM-Dev/gpu-finder/releases/download/v1.0.0/gpu-finder-v1.0.0-windows-amd64.tar.gz
+tar xzf gpu-finder-v1.0.0-windows-amd64.tar.gz
 .\gpu-finder.exe
 ```
 
-### Option 2: Build from Source
+### Option 3: Build from Source
 
 ```bash
 # Clone the repository
