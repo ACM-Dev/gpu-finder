@@ -35,12 +35,14 @@ if (Test-Path ".\$BinName") {
 }
 
 $FileName = "gpu-finder-$Version-$OS-$Arch.tar.gz"
+$ArchiveBin = "gpu-finder-$OS-$Arch.exe"
 Write-Host "📦 Downloading $FileName..."
 Invoke-WebRequest -Uri "$DownloadUrl/$FileName" -OutFile "$env:TEMP\$FileName" -UseBasicParsing
 
 Write-Host "📂 Extracting to $InstallDir..."
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-tar xzf "$env:TEMP\$FileName" -C $InstallDir
+tar xzf "$env:TEMP\$FileName" -C "$env:TEMP"
+Move-Item "$env:TEMP\$ArchiveBin" $BinPath -Force
 Remove-Item "$env:TEMP\$FileName" -Force
 
 Write-Host ""

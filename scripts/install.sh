@@ -45,12 +45,14 @@ if [[ -f "./${BIN_NAME}" ]]; then
 fi
 
 FILENAME="${BIN_NAME}-${VERSION}-${OS}-${ARCH}.tar.gz"
+ARCHIVE_BIN="${BIN_NAME}-${OS}-${ARCH}"
 echo "📦 Downloading ${FILENAME}..."
 curl -fSL --progress-bar "${DOWNLOAD_URL}/${FILENAME}" -o "/tmp/${FILENAME}"
 
 echo "📂 Extracting to ${INSTALL_DIR}..."
 mkdir -p "${INSTALL_DIR}"
-tar xzf "/tmp/${FILENAME}" -C "${INSTALL_DIR}"
+tar xzf "/tmp/${FILENAME}" -C "/tmp"
+mv "/tmp/${ARCHIVE_BIN}" "${BIN_PATH}"
 chmod +x "${BIN_PATH}"
 rm -f "/tmp/${FILENAME}"
 
