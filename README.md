@@ -40,36 +40,36 @@ irm https://github.com/ACM-Dev/gpu-finder/raw/main/scripts/install.ps1 | iex
 
 ### Option 2: Manual Download
 
-Download from [Releases](https://github.com/ACM-Dev/gpu-finder/releases/tag/v1.0.0):
+Download the latest release from [Releases](https://github.com/ACM-Dev/gpu-finder/releases/latest):
 
 ```bash
 # Linux (amd64)
-curl -LO https://github.com/ACM-Dev/gpu-finder/releases/download/v1.0.0/gpu-finder-v1.0.0-linux-amd64.tar.gz
-tar xzf gpu-finder-v1.0.0-linux-amd64.tar.gz
+curl -LO https://github.com/ACM-Dev/gpu-finder/releases/latest/download/gpu-finder-linux-amd64.tar.gz
+tar xzf gpu-finder-linux-amd64.tar.gz
 chmod +x gpu-finder
 ./gpu-finder
 
 # Linux (arm64)
-curl -LO https://github.com/ACM-Dev/gpu-finder/releases/download/v1.0.0/gpu-finder-v1.0.0-linux-arm64.tar.gz
-tar xzf gpu-finder-v1.0.0-linux-arm64.tar.gz
+curl -LO https://github.com/ACM-Dev/gpu-finder/releases/latest/download/gpu-finder-linux-arm64.tar.gz
+tar xzf gpu-finder-linux-arm64.tar.gz
 chmod +x gpu-finder
 ./gpu-finder
 
 # macOS (arm64 / Apple Silicon)
-curl -LO https://github.com/ACM-Dev/gpu-finder/releases/download/v1.0.0/gpu-finder-v1.0.0-darwin-arm64.tar.gz
-tar xzf gpu-finder-v1.0.0-darwin-arm64.tar.gz
+curl -LO https://github.com/ACM-Dev/gpu-finder/releases/latest/download/gpu-finder-darwin-arm64.tar.gz
+tar xzf gpu-finder-darwin-arm64.tar.gz
 chmod +x gpu-finder
 ./gpu-finder
 
 # macOS (amd64 / Intel)
-curl -LO https://github.com/ACM-Dev/gpu-finder/releases/download/v1.0.0/gpu-finder-v1.0.0-darwin-amd64.tar.gz
-tar xzf gpu-finder-v1.0.0-darwin-amd64.tar.gz
+curl -LO https://github.com/ACM-Dev/gpu-finder/releases/latest/download/gpu-finder-darwin-amd64.tar.gz
+tar xzf gpu-finder-darwin-amd64.tar.gz
 chmod +x gpu-finder
 ./gpu-finder
 
 # Windows (amd64)
-curl -LO https://github.com/ACM-Dev/gpu-finder/releases/download/v1.0.0/gpu-finder-v1.0.0-windows-amd64.tar.gz
-tar xzf gpu-finder-v1.0.0-windows-amd64.tar.gz
+curl -LO https://github.com/ACM-Dev/gpu-finder/releases/latest/download/gpu-finder-windows-amd64.tar.gz
+tar xzf gpu-finder-windows-amd64.tar.gz
 .\gpu-finder.exe
 ```
 

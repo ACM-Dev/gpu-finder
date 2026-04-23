@@ -2,10 +2,12 @@
 set -euo pipefail
 
 REPO="ACM-Dev/gpu-finder"
-VERSION="v1.0.0"
 BIN_NAME="gpu-finder"
 INSTALL_DIR="${HOME}/.local/bin"
 BIN_PATH="${INSTALL_DIR}/${BIN_NAME}"
+
+# Fetch latest version from GitHub API
+VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
 DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}"
 
 # Uninstall mode
@@ -40,7 +42,8 @@ case "$ARCH" in
 esac
 
 if command -v ${BIN_NAME} &>/dev/null; then
-  echo "✅ ${BIN_NAME} already installed: $(which ${BIN_NAME})"
+  INSTALLED_PATH=$(which ${BIN_NAME})
+  echo "✅ ${BIN_NAME} already installed: ${INSTALLED_PATH}"
   echo ""
   read -p "Re-download ${VERSION}? [y/N]: " -n 1 -r
   echo
@@ -64,7 +67,7 @@ fi
 
 FILENAME="${BIN_NAME}-${VERSION}-${OS}-${ARCH}.tar.gz"
 ARCHIVE_BIN="${BIN_NAME}-${OS}-${ARCH}"
-echo "📦 Downloading ${FILENAME}..."
+echo "📦 Downloading ${FILENAME} (${VERSION})..."
 curl -fSL --progress-bar "${DOWNLOAD_URL}/${FILENAME}" -o "/tmp/${FILENAME}"
 
 echo "📂 Extracting..."
@@ -82,7 +85,7 @@ if [[ ":$PATH:" != *":${INSTALL_DIR}:"* ]]; then
 fi
 
 echo ""
-echo "✅ Installed to ${BIN_PATH}"
+echo "✅ Installed ${BIN_NAME} ${VERSION} to ${BIN_PATH}"
 echo ""
 echo "🔄 To use gpu-finder:"
 echo "   • Restart your shell, or run:  export PATH=\"${INSTALL_DIR}:\$PATH\""
