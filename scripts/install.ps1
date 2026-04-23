@@ -58,4 +58,8 @@ if ($userPath -notlike "*$InstallDir*") {
 Write-Host ""
 Write-Host "✅ Installed to $BinPath"
 Write-Host ""
+Write-Host "🔄 To use gpu-finder:"
+Write-Host "   • Restart PowerShell, or close and reopen your terminal"
+Write-Host "   • Then run:                    gpu-finder"
+Write-Host ""
 & $BinPath $args

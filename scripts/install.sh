@@ -62,11 +62,13 @@ rm -f "/tmp/${FILENAME}"
 if [[ ":$PATH:" != *":${INSTALL_DIR}:"* ]]; then
   echo "🛤️  Adding ${INSTALL_DIR} to PATH for this session..."
   export PATH="${INSTALL_DIR}:${PATH}"
-  echo "   Add this to your shell profile to persist:"
-  echo "   export PATH=\"${INSTALL_DIR}:\$PATH\""
 fi
 
 echo ""
 echo "✅ Installed to ${BIN_PATH}"
+echo ""
+echo "🔄 To use gpu-finder:"
+echo "   • Restart your shell, or run:  export PATH=\"${INSTALL_DIR}:\$PATH\""
+echo "   • Then run:                    gpu-finder"
 echo ""
 ${BIN_PATH} "$@"
