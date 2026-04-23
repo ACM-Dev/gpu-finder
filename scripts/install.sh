@@ -8,6 +8,24 @@ INSTALL_DIR="${HOME}/.local/bin"
 BIN_PATH="${INSTALL_DIR}/${BIN_NAME}"
 DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}"
 
+# Uninstall mode
+if [[ "${1:-}" == "--uninstall" ]]; then
+  if [[ ! -f "${BIN_PATH}" ]]; then
+    echo "❌ gpu-finder not found at ${BIN_PATH}"
+    exit 1
+  fi
+
+  echo "🗑️  Uninstalling gpu-finder..."
+  rm -f "${BIN_PATH}"
+  echo "✅ Removed ${BIN_PATH}"
+  echo ""
+  echo "🔄 To complete removal:"
+  echo "   • Remove from PATH if added: edit ~/.bashrc, ~/.zshrc, or ~/.profile"
+  echo "   • Remove this line if present: export PATH=\"${INSTALL_DIR}:\$PATH\""
+  echo "   • Or run:  sed -i '/gpu-finder/d' ~/.bashrc ~/.zshrc ~/.profile 2>/dev/null || true"
+  exit 0
+fi
+
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 case "$OS" in
   linux|darwin) ;;
@@ -45,16 +63,30 @@ if [[ -f "./${BIN_NAME}" ]]; then
 fi
 
 FILENAME="${BIN_NAME}-${VERSION}-${OS}-${ARCH}.tar.gz"
+ARCHIVE_BIN="${BIN_NAME}-${OS}-${ARCH}"
 echo "📦 Downloading ${FILENAME}..."
 curl -fSL --progress-bar "${DOWNLOAD_URL}/${FILENAME}" -o "/tmp/${FILENAME}"
 
-echo "📂 Extracting to ${INSTALL_DIR}..."
+echo "📂 Extracting..."
 mkdir -p "${INSTALL_DIR}"
-tar xzf "/tmp/${FILENAME}" -C "${INSTALL_DIR}"
+tar xzf "/tmp/${FILENAME}" -C "/tmp"
+
+echo "🔧 Renaming to ${BIN_NAME}..."
+mv "/tmp/${ARCHIVE_BIN}" "${BIN_PATH}"
 chmod +x "${BIN_PATH}"
 rm -f "/tmp/${FILENAME}"
 
+if [[ ":$PATH:" != *":${INSTALL_DIR}:"* ]]; then
+  echo "🛤️  Adding ${INSTALL_DIR} to PATH for this session..."
+  export PATH="${INSTALL_DIR}:${PATH}"
+fi
+
 echo ""
 echo "✅ Installed to ${BIN_PATH}"
+echo ""
+echo "🔄 To use gpu-finder:"
+echo "   • Restart your shell, or run:  export PATH=\"${INSTALL_DIR}:\$PATH\""
+echo "   • Then run:                    gpu-finder"
+echo "   • To uninstall:                bash <(curl -fsSL https://github.com/ACM-Dev/gpu-finder/raw/main/scripts/install.sh) --uninstall"
 echo ""
 ${BIN_PATH} "$@"
