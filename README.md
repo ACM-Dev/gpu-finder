@@ -1,4 +1,4 @@
-# AWS GPU Instance Capacity Finder (Go Version)
+# AWS GPU Instance Capacity Finder
 
 A high-performance, interactive TUI tool written in Go for checking EC2 GPU instance availability across AWS regions. This tool performs **real** On-Demand Capacity Reservation (ODCR) tests and **Capacity Block** availability checks to confirm actual capacity beyond simple dry-runs.
 
@@ -24,35 +24,56 @@ Made by [acuitmeshdev](https://acuitmesh.com).
 - **AWS Credentials**: Configured via `aws configure`, environment variables, or IAM roles.
 - **Permissions**: Requires `ec2:Describe*`, `ec2:CreateCapacityReservation`, `ec2:CancelCapacityReservation`, `ec2:DescribeCapacityBlockOfferings`, `pricing:GetProducts`, and `sts:GetCallerIdentity`.
 
-### Option 1: Download Pre-built Binary
+### Option 1: Auto-Install Script (Recommended)
 
-Download the latest release from [Releases](https://github.com/ACM-Dev/gpu-finder/releases):
+The install script auto-detects your OS/architecture, checks for existing installations, and downloads only if needed.
+
+**Linux / macOS:**
+```bash
+curl -fsSL https://github.com/ACM-Dev/gpu-finder/raw/main/scripts/install.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://github.com/ACM-Dev/gpu-finder/raw/main/scripts/install.ps1 | iex
+```
+
+### Option 2: Manual Download
+
+Download from [Releases](https://github.com/ACM-Dev/gpu-finder/releases/tag/v1.0.0):
 
 ```bash
 # Linux (amd64)
-curl -LO https://github.com/ACM-Dev/gpu-finder/releases/latest/download/gpu-finder-vX.Y.Z-linux-amd64.tar.gz
-tar xzf gpu-finder-vX.Y.Z-linux-amd64.tar.gz
+curl -LO https://github.com/ACM-Dev/gpu-finder/releases/download/v1.0.0/gpu-finder-v1.0.0-linux-amd64.tar.gz
+tar xzf gpu-finder-v1.0.0-linux-amd64.tar.gz
+chmod +x gpu-finder
+./gpu-finder
+
+# Linux (arm64)
+curl -LO https://github.com/ACM-Dev/gpu-finder/releases/download/v1.0.0/gpu-finder-v1.0.0-linux-arm64.tar.gz
+tar xzf gpu-finder-v1.0.0-linux-arm64.tar.gz
 chmod +x gpu-finder
 ./gpu-finder
 
 # macOS (arm64 / Apple Silicon)
-curl -LO https://github.com/ACM-Dev/gpu-finder/releases/latest/download/gpu-finder-vX.Y.Z-darwin-arm64.tar.gz
-tar xzf gpu-finder-vX.Y.Z-darwin-arm64.tar.gz
+curl -LO https://github.com/ACM-Dev/gpu-finder/releases/download/v1.0.0/gpu-finder-v1.0.0-darwin-arm64.tar.gz
+tar xzf gpu-finder-v1.0.0-darwin-arm64.tar.gz
 chmod +x gpu-finder
 ./gpu-finder
 
 # macOS (amd64 / Intel)
-curl -LO https://github.com/ACM-Dev/gpu-finder/releases/latest/download/gpu-finder-vX.Y.Z-darwin-amd64.tar.gz
-tar xzf gpu-finder-vX.Y.Z-darwin-amd64.tar.gz
+curl -LO https://github.com/ACM-Dev/gpu-finder/releases/download/v1.0.0/gpu-finder-v1.0.0-darwin-amd64.tar.gz
+tar xzf gpu-finder-v1.0.0-darwin-amd64.tar.gz
 chmod +x gpu-finder
 ./gpu-finder
 
 # Windows (amd64)
-# Download gpu-finder-vX.Y.Z-windows-amd64.zip from Releases, extract, then run:
+curl -LO https://github.com/ACM-Dev/gpu-finder/releases/download/v1.0.0/gpu-finder-v1.0.0-windows-amd64.tar.gz
+tar xzf gpu-finder-v1.0.0-windows-amd64.tar.gz
 .\gpu-finder.exe
 ```
 
-### Option 2: Build from Source
+### Option 3: Build from Source
 
 ```bash
 # Clone the repository
@@ -135,16 +156,6 @@ Review the final status in a sortable table with GPU specs, ODCR status, and CB 
 | `s` | Save report (choose format: md/json/html/all) |
 | `q` | Quit (with confirmation) |
 | `Ctrl+C` | Force quit |
-
----
-
-## Why Go?
-
-This version is a significant upgrade from the original Python implementation:
-1. **Speed**: Concurrent checks are handled via lightweight goroutines, making it significantly faster than the `boto3` equivalent.
-2. **Zero Dependencies**: Compiles to a single static binary. No need for `pip install` or virtual environments.
-3. **Robustness**: Static typing and built-in error handling ensure a stable experience even with complex AWS API interactions.
-4. **Full Feature Parity**: Includes Capacity Block checks, on-demand pricing, and multi-format exports.
 
 ---
 
