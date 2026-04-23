@@ -1,8 +1,11 @@
 $ErrorActionPreference = "Stop"
 
 $Repo = "ACM-Dev/gpu-finder"
-$Version = "v1.0.0"
 $BinName = "gpu-finder.exe"
+
+# Fetch latest version from GitHub API
+$LatestRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -UseBasicParsing
+$Version = $LatestRelease.tag_name
 $DownloadUrl = "https://github.com/$Repo/releases/download/$Version"
 
 $InstallDir = Join-Path $env:LOCALAPPDATA "gpu-finder"
@@ -62,7 +65,7 @@ if (Test-Path ".\$BinName") {
 
 $FileName = "gpu-finder-$Version-$OS-$Arch.tar.gz"
 $ArchiveBin = "gpu-finder-$OS-$Arch.exe"
-Write-Host "📦 Downloading $FileName..."
+Write-Host "📦 Downloading $FileName ($Version)..."
 Invoke-WebRequest -Uri "$DownloadUrl/$FileName" -OutFile "$env:TEMP\$FileName" -UseBasicParsing
 
 Write-Host "📂 Extracting..."
@@ -82,7 +85,7 @@ if ($userPath -notlike "*$InstallDir*") {
 }
 
 Write-Host ""
-Write-Host "✅ Installed to $BinPath"
+Write-Host "✅ Installed $BinName $Version to $BinPath"
 Write-Host ""
 Write-Host "🔄 To use gpu-finder:"
 Write-Host "   • Restart PowerShell, or close and reopen your terminal"

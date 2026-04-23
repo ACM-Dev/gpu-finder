@@ -30,13 +30,29 @@ func CheckAuth() types.AuthMsg {
 		config.WithRetryMaxAttempts(10),
 	)
 	if err != nil {
-		return types.AuthMsg{Err: err}
+		return types.AuthMsg{Err: fmt.Errorf("AWS config failed: %w", err)}
 	}
 
 	stsClient := sts.NewFromConfig(cfg)
 	identity, err := stsClient.GetCallerIdentity(context.TODO(), &sts.GetCallerIdentityInput{})
 	if err != nil {
-		return types.AuthMsg{Err: fmt.Errorf("AWS Auth failed: %w", err)}
+		errMsg := fmt.Sprintf("AWS Auth failed: %v", err)
+		errStr := err.Error()
+		if strings.Contains(errStr, "ExpiredToken") || strings.Contains(errStr, "expired") || strings.Contains(errStr, "session has expired") {
+			errMsg = "Your AWS session has expired. Please reauthenticate:\n\n" +
+				"  • AWS SSO:  aws login\n" +
+				"  • CLI:      aws configure\n" +
+				"  • Or set:   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN"
+			return types.AuthMsg{Err: errors.New(errMsg)}
+		}
+		if strings.Contains(errStr, "NoCredentialProviders") || strings.Contains(errStr, "no credentials") {
+			errMsg = "No AWS credentials found. Please configure your credentials:\n\n" +
+				"  • CLI:      aws configure\n" +
+				"  • AWS SSO:  aws login\n" +
+				"  • Or set:   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN"
+			return types.AuthMsg{Err: errors.New(errMsg)}
+		}
+		return types.AuthMsg{Err: errors.New(errMsg)}
 	}
 
 	msg := types.AuthMsg{

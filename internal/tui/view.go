@@ -12,7 +12,13 @@ import (
 
 func View(m types.Model) string {
 	if m.ErrorMsg != "" {
-		return styles.BaseStyle.Render(styles.ErrorStyle.Render("Error: "+m.ErrorMsg))
+		errBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#FF0000")).
+			Padding(1, 2).
+			Render(styles.ErrorStyle.Render("Error") + "\n\n" + m.ErrorMsg + "\n\n" +
+				styles.DimStyle.Render("Press q to exit"))
+		return styles.BaseStyle.Render(errBox)
 	}
 
 	s := strings.Builder{}
